@@ -9,9 +9,6 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 
-[build]
-target = "thumbv7em-none-eabihf"
-
 [[bin]]
 name = "my-blog-os"
 test = false

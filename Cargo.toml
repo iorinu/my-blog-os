@@ -1,0 +1,20 @@
+[package]
+name = "my-blog-os"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[build]
+target = "thumbv7em-none-eabihf"
+
+[[bin]]
+name = "my-blog-os"
+test = false
+bench = false
+
+[dependencies]

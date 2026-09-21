@@ -2,30 +2,30 @@
 #![no_main]
 
 use bootloader_api::{BootInfo, entry_point};
-use core::fmt::Write;
 use core::panic::PanicInfo;
 use uart_16550::backend::PioBackend;
-use uart_16550::{Config, Uart16550Tty};
+use uart_16550::{Config, Uart16550};
 
 #[allow(dead_code)]
 mod vga_buffer;
 
 entry_point!(kernel_main);
 
-fn serial() -> Uart16550Tty<PioBackend> {
-    unsafe { Uart16550Tty::new_port(0x3F8, Config::default()) }
-        .expect("シリアルポートを初期化できませんでした")
+fn serial() -> Option<Uart16550<PioBackend>> {
+    let mut port = unsafe { Uart16550::new_port(0x3F8).ok()? };
+    port.init(Config::default()).ok()?;
+    Some(port)
 }
 
 fn kernel_main(_boot_info: &'static mut BootInfo) -> ! {
-    let mut port = serial();
-    writeln!(port, "my-blog-os: UEFI kernel started").unwrap();
+    if let Some(mut port) = serial() {
+        port.send_bytes_exact(b"my-blog-os: UEFI kernel started\r\n");
+    }
 
     loop {}
 }
 
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    let _ = writeln!(serial(), "PANIC: {info}");
+fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }

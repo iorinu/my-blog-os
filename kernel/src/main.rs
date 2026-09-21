@@ -6,6 +6,7 @@ use core::panic::PanicInfo;
 use uart_16550::backend::PioBackend;
 use uart_16550::{Config, Uart16550};
 
+mod framebuffer;
 #[allow(dead_code)]
 mod vga_buffer;
 
@@ -17,7 +18,9 @@ fn serial() -> Option<Uart16550<PioBackend>> {
     Some(port)
 }
 
-fn kernel_main(_boot_info: &'static mut BootInfo) -> ! {
+fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    framebuffer::draw_hello_world(boot_info.framebuffer.as_mut());
+
     if let Some(mut port) = serial() {
         port.send_bytes_exact(b"my-blog-os: UEFI kernel started\r\n");
     }

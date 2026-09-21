@@ -7,8 +7,6 @@ use uart_16550::backend::PioBackend;
 use uart_16550::{Config, Uart16550};
 
 mod framebuffer;
-#[allow(dead_code)]
-mod vga_buffer;
 
 entry_point!(kernel_main);
 
@@ -19,7 +17,12 @@ fn serial() -> Option<Uart16550<PioBackend>> {
 }
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    framebuffer::draw_hello_world(boot_info.framebuffer.as_mut());
+    if let Some(framebuffer) = boot_info.framebuffer.take() {
+        framebuffer::init(framebuffer);
+    }
+
+    println!("Hello World!");
+    println!("my-blog-os: UEFI kernel started");
 
     if let Some(mut port) = serial() {
         port.send_bytes_exact(b"my-blog-os: UEFI kernel started\r\n");

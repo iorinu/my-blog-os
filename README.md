@@ -15,4 +15,4 @@ cargo run
 
 UEFIディスクイメージは、`cargo build`の出力に表示される`target/debug/build/*/out/uefi.img`です。USBへ書き込む場合は、ファイルをコピーするのではなく、ディスク全体へraw書き込みします。
 
-現在のVGAテキストバッファ出力は、UEFIのframebuffer出力へ移行する前段階としてkernelクレートに残しています。
+画面出力はUEFIから渡されるFramebufferを使っています。以前のVGAテキスト表示との違いと、UEFI上で文字端末風に戻す方法は[表示方式の調査メモ](docs/uefi-display-design.md)を参照してください。

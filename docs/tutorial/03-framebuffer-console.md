@@ -35,27 +35,62 @@ bootloader_api 0.11.12の`PixelFormat`は`Rgb`、`Bgr`、`U8`、`Unknown`を区�
 
 概念的な処理は次のようになります。実際の `FrameBuffer` の借用方法やバッファ取得APIは版のドキュメントを参照してください。
 
+このホスト実行可能な例では、`stride`を使って画素の半開バイト範囲を計算し、バッファ境界と整数オーバーフローを検査します。
+
 ```rust
-// 概念コード。呼び出し前に形式とbytes_per_pixelの対応を確認する。
-fn pixel_range(x: usize, y: usize, width: usize, height: usize,
-    stride: usize, bpp: usize, buffer_len: usize)
-    -> Option<core::ops::Range<usize>>
-{
+// tutorial:compile
+// strideを使い、画素が占める範囲を半開区間で返す。
+fn pixel_range(
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    stride: usize,
+    bpp: usize,
+    buffer_len: usize,
+) -> Option<std::ops::Range<usize>> {
     if x >= width || y >= height || x >= stride || bpp == 0 {
         return None;
     }
-    let index = y.checked_mul(stride)?.checked_add(x)?;
-    let start = index.checked_mul(bpp)?;
+    let pixel_index = y.checked_mul(stride)?.checked_add(x)?;
+    let start = pixel_index.checked_mul(bpp)?;
     let end = start.checked_add(bpp)?;
     (end <= buffer_len).then_some(start..end)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pixel_range;
+
+    #[test]
+    fn uses_stride_and_half_open_range() {
+        assert_eq!(
+            pixel_range(10, 2, 800, 600, 832, 4, 832 * 600 * 4),
+            Some(6696..6700)
+        );
+    }
+
+    #[test]
+    fn rejects_boundaries_overflow_and_short_buffer() {
+        assert_eq!(pixel_range(800, 0, 800, 600, 832, 4, usize::MAX), None);
+        assert_eq!(pixel_range(0, 0, 1, 1, 1, 0, 1), None);
+        assert_eq!(
+            pixel_range(0, usize::MAX - 1, 1, usize::MAX, usize::MAX, 2, usize::MAX),
+            None
+        );
+        assert_eq!(pixel_range(0, 1, 1, 2, usize::MAX, 2, usize::MAX), None);
+        assert_eq!(pixel_range(0, 0, 1, 1, 1, 4, 3), None);
+    }
+}
 ```
 
-この断片は考え方を示す概念コードで、FrameBufferからのスライス取得や色の書き込みは含みません。
+この関数はホストでテストできる計算例です。FrameBufferからのスライス取得や色の書き込みは含みません。
 
 `checked_mul`と`checked_add`は上限超過を`None`にし、折り返した値を有効位置と誤認しないために使います。
 
 `Range`の終端は含まないため、最後の有効バイトの直後を`end`として扱います。
+
+`then_some(value)`は、条件が真なら`Some(value)`、偽なら`None`を返します。この関数では範囲末尾がバッファ長以内かをそのまま結果にしています。
 
 呼び出し側は`Rgb`ならRGB順、`Bgr`ならBGR順を選び、仕様に合わない保存幅や`Unknown`を拒否します。`U8`はグレースケール値として扱い、RGBカラー形式とは分けます。[24][26]
 

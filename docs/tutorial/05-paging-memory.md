@@ -27,6 +27,80 @@ flowchart LR
 
 ## なぜ間接変換するのか
 
+次のホスト実行可能な関数は、ページサイズが一定の単一マッピング表を引く教育用モデルです。実際のCPUの多段ページテーブルを歩く処理ではありません。
+
+```rust
+// tutorial:compile
+// 単一の範囲対応表だけを検索する教育用モデル。
+struct Mapping {
+    virtual_start: usize,
+    physical_start: usize,
+    length: usize,
+}
+
+fn translate(mappings: &[Mapping], address: usize) -> Option<usize> {
+    for mapping in mappings {
+        let Some(virtual_end) = mapping.virtual_start.checked_add(mapping.length) else {
+            continue;
+        };
+        if (mapping.virtual_start..virtual_end).contains(&address) {
+            let offset = address.checked_sub(mapping.virtual_start)?;
+            return mapping.physical_start.checked_add(offset);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{translate, Mapping};
+
+    #[test]
+    fn translates_inside_mapping_and_page_offset() {
+        let mappings = [Mapping {
+            virtual_start: 0x1000,
+            physical_start: 0x8000,
+            length: 0x1000,
+        }];
+        assert_eq!(translate(&mappings, 0x1123), Some(0x8123));
+        assert_eq!(translate(&mappings, 0x1fff), Some(0x8fff));
+    }
+
+    #[test]
+    fn rejects_unmapped_and_overflowing_ranges() {
+        let mappings = [Mapping {
+            virtual_start: 0x1000,
+            physical_start: 0x8000,
+            length: 0x1000,
+        }];
+        assert_eq!(translate(&mappings, 0x2000), None);
+        let overflow = [Mapping {
+            virtual_start: usize::MAX,
+            physical_start: 0,
+            length: 2,
+        }];
+        assert_eq!(translate(&overflow, usize::MAX), None);
+        let malformed_then_valid = [
+            Mapping {
+                virtual_start: usize::MAX,
+                physical_start: 0,
+                length: 2,
+            },
+            Mapping {
+                virtual_start: 0x1000,
+                physical_start: 0x8000,
+                length: 0x1000,
+            },
+        ];
+        assert_eq!(translate(&malformed_then_valid, 0x1123), Some(0x8123));
+    }
+}
+```
+
+このモデルは範囲内のoffsetを物理側へ加える計算だけを行い、ページサイズ、アクセス権、多段ページテーブルは扱いません。
+
+範囲終端の加算でオーバーフローしたマッピングは`continue`で飛ばし、次の要素を調べます。壊れた一項目が後続の有効な項目を隠さないようにしています。
+
 ページテーブルの権限は、読み取り・書き込み・実行を制御し、存在しない領域や禁止されたアクセスをページフォルトとして検出する手段になります。アドレス空間を分ける設計では、無関係な領域への誤書き込みを防げます。ただし権限設定を誤ると、必要なコードが実行できないなど別の障害が起きます。[17][18]
 
 変換の権限は、ページテーブルの各段に記録される属性の組み合わせとして働く場合があります。そのため最終段の項目だけを見て「書き込み可能」と断定できないことがあります。また、ページサイズを大きくするとテーブル管理が効率化する場合がある一方、細かな権限分離や小領域の利用では無駄が生じます。ページサイズや巨大ページの有効条件は、教材の計算例と実機の状態を区別してください。

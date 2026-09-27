@@ -27,6 +27,88 @@ sequenceDiagram
 
 ## ハンドラを短くする理由
 
+次のホスト実行可能なリングバッファは単一所有者が順番に操作する例です。複数実行文脈の同期を行わず、これだけで割り込み安全にはなりません。
+
+```rust
+// tutorial:compile
+// 空き枠を一つ残し、単一所有者が順番に操作する固定長キュー。
+struct RingBuffer<T, const N: usize> {
+    slots: [Option<T>; N],
+    read: usize,
+    write: usize,
+}
+
+impl<T, const N: usize> RingBuffer<T, N> {
+    fn new() -> Self {
+        Self {
+            slots: core::array::from_fn(|_| None),
+            read: 0,
+            write: 0,
+        }
+    }
+
+    fn push(&mut self, value: T) -> bool {
+        if N < 2 {
+            return false;
+        }
+        let next = (self.write + 1) % N;
+        if next == self.read {
+            return false;
+        }
+        self.slots[self.write] = Some(value);
+        self.write = next;
+        true
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        if self.read == self.write {
+            return None;
+        }
+        let value = self.slots[self.read].take();
+        self.read = (self.read + 1) % N;
+        value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RingBuffer;
+
+    #[test]
+    fn preserves_fifo_order_and_wraps() {
+        let mut queue = RingBuffer::<i32, 4>::new();
+        assert!(queue.push(1));
+        assert!(queue.push(2));
+        assert!(queue.push(3));
+        assert!(!queue.push(99));
+        assert_eq!(queue.pop(), Some(1));
+        assert!(queue.push(4));
+        assert_eq!(queue.pop(), Some(2));
+        assert_eq!(queue.pop(), Some(3));
+        assert_eq!(queue.pop(), Some(4));
+        assert_eq!(queue.pop(), None);
+    }
+
+    #[test]
+    fn rejects_full_and_capacity_below_two() {
+        let mut queue = RingBuffer::<u8, 2>::new();
+        assert!(queue.push(7));
+        assert!(!queue.push(8));
+        assert_eq!(queue.pop(), Some(7));
+        let mut empty = RingBuffer::<u8, 0>::new();
+        assert!(!empty.push(1));
+        assert_eq!(empty.pop(), None);
+        let mut one_slot = RingBuffer::<u8, 1>::new();
+        assert!(!one_slot.push(1));
+        assert_eq!(one_slot.pop(), None);
+    }
+}
+```
+
+`push`は追加できたときに`true`、満杯のときに`false`を返します。呼び出し側は`false`を見て破棄数を記録できます。配列長が4なら1枠を空けるため、保持できる値は3個です。
+
+`core::array::from_fn`は配列の各枠を`None`で初期化します。`Option<T>`を同じ値で複製する必要がないため、キューの要素に`Copy`制約を付けずに済みます。
+
 割り込みハンドラは、通常処理の途中に予告なく入ります。そこで長い描画やメモリ確保を行うと、処理時間が延び、ロックの再入や他の割り込みとの競合を招きます。ハンドラでは必要最小限の状態を読み取り、確認応答を行い、後続処理へ小さなイベントを渡す設計が扱いやすいものです。装置固有の確認応答を怠ると、同じ通知が再び来たり、次の割り込みが止まったりする可能性があるため、手順は装置仕様で確認します。
 
 ハンドラの実行中にはCPUが一部の割り込みを抑止する場合がありますが、すべての割り込みが自動で止まるとは限りません。優先度やネストの規則を理解せず、ハンドラから同じ種類の通知が再入できる設定にすると、スタックを使い切る危険があります。反対に、長時間すべてを抑止すればタイマーや他装置の応答を遅らせます。短いハンドラと後続処理への委譲は、応答性と安全性の両方を保つための設計です。

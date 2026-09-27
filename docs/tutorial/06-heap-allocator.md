@@ -29,19 +29,48 @@ flowchart TD
 解放後: [空き][AAAAAA][空き]  → 隣接領域をまとめられるか？
 ```
 
-アラインメントを扱うbump方式では、カーソルを要求境界まで切り上げ、その位置から要求サイズを足します。次はアドレス計算を示す概念コードで、実際のカーネルでは整数幅やポインタの有効性も確認します。
+アラインメントを扱うbump方式では、カーソルを要求境界まで切り上げ、その位置から要求サイズを足します。次のホスト実行可能な例は、この算術と固定領域の境界をテストします。実際のカーネルでポインタを返す処理とは分けて読んでください。
 
 ```rust
-// 固定領域を順に使う概念コード。解放処理は持たない。
+// tutorial:compile
+// 固定領域内で位置を進めるだけで、解放は扱わない。
 fn allocate(cursor: usize, end: usize, size: usize, align: usize) -> Option<(usize, usize)> {
-    if align == 0 || !align.is_power_of_two() { return None; }
+    if align == 0 || !align.is_power_of_two() {
+        return None;
+    }
     let mask = align - 1;
-    let start = cursor.checked_add(mask)? & !mask; // 境界へ切り上げる
+    let start = cursor.checked_add(mask)? & !mask;
     let next = start.checked_add(size)?;
-    if next > end { return None; }
-    Some((start, next)) // (返す開始位置, 次回カーソル)
+    if next > end {
+        return None;
+    }
+    Some((start, next))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allocate;
+
+    #[test]
+    fn aligns_and_accepts_exact_end() {
+        assert_eq!(allocate(0x1003, 0x1012, 10, 8), Some((0x1008, 0x1012)));
+        assert_eq!(allocate(4, 4, 0, 1), Some((4, 4)));
+    }
+
+    #[test]
+    fn rejects_bad_alignment_bounds_and_overflow() {
+        assert_eq!(allocate(0, 10, 1, 0), None);
+        assert_eq!(allocate(0, 10, 1, 3), None);
+        assert_eq!(allocate(0, 10, 11, 1), None);
+        assert_eq!(allocate(usize::MAX, usize::MAX, 1, 2), None);
+        assert_eq!(allocate(1, usize::MAX, usize::MAX, 1), None);
+    }
 }
 ```
+
+この計算例は固定領域のbump確保モデルです。解放機能や同期機能を持たず、本番用の`GlobalAlloc`ではありません。
+
+`align`を2のべき乗に限ると、`mask = align - 1`を使って`cursor`を次の境界へ切り上げられます。`checked_add(mask)`は切り上げ時の整数オーバーフローを検出します。
 
 例としてカーソル `0x1003`、サイズ10、アラインメント8なら、開始位置は `0x1008`、次のカーソルは `0x1012` です。切り上げによる隙間も消費済みになり、末尾超過や加算オーバーフローは失敗になります。bump方式は以前の確保位置を個別に記録しないため、解放しても領域を再利用できず、長期間使うと空き領域が尽きます。初期化中など寿命をまとめて終えられる用途に向く理由です。[19][20]
 

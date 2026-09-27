@@ -22,19 +22,58 @@ flowchart LR
 BootInfoにはメモリ領域の一覧、利用可能ならフレームバッファ、物理メモリの仮想マッピング情報などが含まれます。配置は機種や起動設定ごとに異なり、この構造体はブートローダが調べた環境情報を渡します。構造体は`non-exhaustive`として扱われ、将来フィールドが増える可能性があります。APIが定める型を使い、項目の有無に応じた処理を用意します。[22]
 
 ```rust
-// 概念例。出力関数は省略しています。
-// endがstartより前なら長さを計算しません。
-fn inspect_memory(info: &bootloader_api::BootInfo) {
-    for region in info.memory_regions.iter() {
-        let Some(length) = region.end.checked_sub(region.start) else {
-            continue;
-        };
-        // region.start、region.end、length、region.kindを初期化済み出力先へ記録する。
+// tutorial:compile
+// endがstart未満ならchecked_subが失敗する。
+fn region_length(start: u64, end: u64) -> Option<u64> {
+    end.checked_sub(start)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::region_length;
+
+    #[test]
+    fn length_and_empty_region() {
+        assert_eq!(region_length(0x1000, 0x3000), Some(0x2000));
+        assert_eq!(region_length(7, 7), Some(0));
+    }
+
+    #[test]
+    fn reversed_region_is_rejected() {
+        assert_eq!(region_length(8, 7), None);
     }
 }
 ```
 
-`memory_regions`は領域を順に読むためのコレクションです。[22][30] `MemoryRegion`は`start`、排他的な`end`、`kind`を持ちます。長さは`end - start`で求めます。たとえば`start = 0x100000`、`end = 0x300000`なら長さは`0x200000`（2 MiB）で、範囲は`0x100000..0x300000`です。これは読み方の例であり、実際の起動でこの値が現れるという意味ではありません。[29]
+上のテストはホストで実行する独立例のテストです。`checked_sub`は終端が開始位置より前なら`None`を返します。
+
+```rust
+// tutorial:kernel
+// カーネル文脈の例。呼び出し前にシリアルなどの出力先を初期化する。
+use core::fmt::Write;
+
+pub fn inspect_memory(
+    info: &bootloader_api::BootInfo,
+    output: &mut impl Write,
+) -> core::fmt::Result {
+    for region in info.memory_regions.iter() {
+        let Some(length) = region.end.checked_sub(region.start) else {
+            continue;
+        };
+        writeln!(
+            output,
+            "{:#x}..{:#x} kind={:?} length={:#x}",
+            region.start,
+            region.end,
+            region.kind,
+            length
+        )?;
+    }
+    Ok(())
+}
+```
+
+`memory_regions`は領域を順に読むためのコレクションです。[22][30] `MemoryRegion`は`start`、排他的な`end`、`kind`を持ちます。長さは`end - start`で求めます。たとえば`start = 0x100000`、`end = 0x300000`なら長さは`0x200000`（2 MiB）で、範囲は`0x100000..0x300000`です。これは読み方の例であり、実際の起動でこの値が現れるという意味ではありません。[29] `core::fmt::Write`を実装した出力先なら、同じ関数をシリアルやフレームバッファへ接続できます。`?`は書き込みに失敗したとき、そのエラーを呼び出し元へ返します。
 
 このAPIでは、ブートローダが使用した領域をメモリマップに反映し、`Usable`領域はカーネルが利用できると定義されています。[22] `MemoryRegion`の`start`、排他的な`end`、`kind`は領域情報を表します。[29] メモリマップ自体は割り当て状態を管理しません。フレームアロケータを設計するときはページ境界への調整や、再割り当てを避けるため確保済みフレームを追跡する方法を検討します。Phil Oppのページング実装はその設計例として参照できますが、これは例であり、`bootloader_api`が保証するものではありません。[18]
 

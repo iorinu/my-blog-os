@@ -23,9 +23,10 @@ flowchart LR
 
 freestandingなカーネルは通常の`main`を持たず、起動側との入口契約を満たす関数を用意します。bootloader_api 0.11.12では`entry_point!`マクロに通常のRust ABIを使う関数を渡し、型は`fn(&'static mut BootInfo) -> !`です。マクロはこの関数を検査し、リンカが使う`_start`を`extern "C"` ABIの入口として生成します。コールバックと生成シンボルのABIは異なります。[22][28]
 
-次のコードは、入口関数とpanic handlerの形を示す断片です。Cargo設定やリンカ設定を含まないため、単独で起動できるプロジェクトではありません。[10][11]
+次のコードは、入口関数とpanic handlerの形を示すカーネル文脈の例です。ホスト実行可能な単体テストではありません。Cargo設定やリンカ設定を含まないため、単独で起動できるプロジェクトでもありません。[10][11]
 
 ```rust
+// tutorial:kernel
 #![no_std]
 #![no_main]
 

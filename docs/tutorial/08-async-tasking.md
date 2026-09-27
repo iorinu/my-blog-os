@@ -23,6 +23,83 @@ stateDiagram-v2
 
 ## 協調的という言葉の意味
 
+以下はホストでテストする最小Futureです。Wakerを一度起こして次のpollで完了しますが、タスクキューなどを備えた完全なexecutorではありません。
+
+```rust
+// tutorial:compile
+// 最初のpollで一度起床通知し、次のpollで完了する。
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+struct WakeOnce {
+    woke: bool,
+}
+
+impl WakeOnce {
+    fn new() -> Self {
+        Self { woke: false }
+    }
+}
+
+impl Future for WakeOnce {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.woke {
+            Poll::Ready(())
+        } else {
+            self.woke = true;
+            context.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WakeOnce;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct CountWake(AtomicUsize);
+    impl Wake for CountWake {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn wakes_once_then_completes_when_polled() {
+        let wake_count = Arc::new(CountWake(AtomicUsize::new(0)));
+        let waker = Waker::from(wake_count.clone());
+        let mut context = Context::from_waker(&waker);
+        let mut future = WakeOnce::new();
+        assert!(matches!(
+            Pin::new(&mut future).poll(&mut context),
+            Poll::Pending
+        ));
+        assert_eq!(wake_count.0.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            Pin::new(&mut future).poll(&mut context),
+            Poll::Ready(())
+        ));
+    }
+}
+```
+
+`poll`が受け取る`Pin<&mut Self>`は、Futureの状態をpoll中に移動しない約束を表します。`async`の状態機械は待機をまたいで内部状態を参照することがあるため、この型を使います。[21] この例の`WakeOnce`は自己参照を持たず`Unpin`なので、テストでは`Pin::new`で包めます。一般のFutureに同じ操作をできるとは限りません。
+
+テスト用の`CountWake`は、`Waker`が呼ばれた回数を`AtomicUsize`で数えます。これで通知が一度出ることは確認できますが、通知を受け取ってタスクキューへ戻すexecutorの動作は検証していません。
+
 協調的タスク切り替えでは、タスクが待機点で自ら実行権を返します。CPUが任意の命令位置で強制的に切り替えるプリエンプティブ方式と違い、タスクが長い計算をawaitせず続けると、他のタスクは進みません。したがって「asyncにしたので並列になる」は誤解です。asyncは主に待ち時間を効率よく扱う仕組みで、複数CPUコアで同時に実行する並列性とは別です。
 
 awaitが必ずスケジューラへの切り替えを意味するわけでもありません。await対象のFutureがすでにReadyなら、呼び出し元はそのまま続けて実行できます。切り替え可能な点を作ることと、その場で必ず別タスクへ移ることを区別します。遅い計算を小さな区間に分け、適切な地点でyieldする方法もありますが、過度な切り替えは状態保存やスケジューリングの負担になります。

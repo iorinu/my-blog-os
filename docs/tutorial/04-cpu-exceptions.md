@@ -33,6 +33,44 @@ sequenceDiagram
          → 記録して停止、または安全な復旧を行う
 ```
 
+以下はホスト実行可能な小さな分類関数です。breakpointのベクタ3とpage faultのベクタ14だけを名前に対応づけます。[14][17] IDTへの登録やCPU例外の実処理は行いません。
+
+```rust
+// tutorial:compile
+// 既知の例外ベクタだけを分類し、IDTには登録しない。
+#[derive(Debug, PartialEq, Eq)]
+enum KnownException {
+    Breakpoint,
+    PageFault,
+}
+
+fn classify_vector(vector: u16) -> Option<KnownException> {
+    match vector {
+        3 => Some(KnownException::Breakpoint),
+        14 => Some(KnownException::PageFault),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_vector, KnownException};
+
+    #[test]
+    fn classifies_known_exception_vectors() {
+        assert_eq!(classify_vector(3), Some(KnownException::Breakpoint));
+        assert_eq!(classify_vector(14), Some(KnownException::PageFault));
+    }
+
+    #[test]
+    fn leaves_other_vectors_unclassified() {
+        assert_eq!(classify_vector(0), None);
+        assert_eq!(classify_vector(32), None);
+        assert_eq!(classify_vector(256), None);
+    }
+}
+```
+
 この順で追うと、IDTにCPUが例外時に必要とする入口情報が記述されていると分かります。通常のRust関数呼び出し規約だけでは、CPUが用意する例外時のスタック配置や復帰形式を扱えないため、対応する入口機構を使います。
 
 例外発生時にCPUが保存する命令位置は、例外の性質により「問題の命令を再実行する位置」か「次の命令へ進む位置」かが異なります。記録したアドレスをただインクリメントすれば復旧するわけではありません。たとえば命令を飛ばせばプログラム状態が壊れますし、同じ問題命令へ戻れば例外が再発する場合もあります。カーネル初期段階では自動回復より、再現に必要な情報を出して停止する方が安全なことが多い理由です。

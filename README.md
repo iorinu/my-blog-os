@@ -11,7 +11,7 @@ cargo build
 cargo run
 ```
 
-`cargo run`はOVMFを使ってUEFIモードのQEMUを起動し、シリアル出力にカーネルの起動メッセージを表示します。
+`cargo run`はOVMFを使ってUEFIモードのQEMUを起動し、QEMUの画面とシリアル出力にカーネルの起動メッセージを表示します。
 
 UEFIディスクイメージは、`cargo build`の出力に表示される`target/debug/build/*/out/uefi.img`です。USBへ書き込む場合は、ファイルをコピーするのではなく、ディスク全体へraw書き込みします。
 

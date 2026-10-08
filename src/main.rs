@@ -11,7 +11,7 @@ fn main() {
 
     let mut command = Command::new("qemu-system-x86_64");
     command.arg("-serial").arg("mon:stdio");
-    command.arg("-display").arg("none");
+    command.arg("-display").arg("cocoa");
     command
         .arg("-drive")
         .arg(format!("format=raw,file={uefi_path}"));
